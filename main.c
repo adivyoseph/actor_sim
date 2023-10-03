@@ -239,6 +239,7 @@ int main(int argc, char **argv) {
     workq_init(&g_contexts[ACTORS_MAX].workq_in);
     g_contexts[ACTORS_MAX].instance = 0;
     g_contexts[ACTORS_MAX].srcId = ACTORS_MAX;
+    g_contexts[ACTORS_MAX].setaffinity = 23;
     pthread_create(&g_contexts[ACTORS_MAX].thread_id, NULL, th_ag, (void *) &g_contexts[ACTORS_MAX]);
 
     dir_print();
@@ -278,7 +279,7 @@ int main(int argc, char **argv) {
      sec_count = (int)(total_send / 3);
       first_count = total_send - (sec_count* (2));
   clock_gettime(CLOCK_REALTIME, &start);
-  for (i = 0; i < 1; i++) {
+  for (i = 0; i < 3; i++) {
       msg.cmd = CMD_CTL_START;
       msg.src = -1;
       if (i == 0) {
@@ -540,8 +541,9 @@ void *th_ib_write(void *p_arg){
             }
             //send ack
             msg_ack.cmd = CMD_REQ_ACK ;
-            msg_ack.dst = msg_ack.src ;
+            msg_ack.dst = msg.src ;
             msg_ack.src = this->srcId;
+            printf("%s%d ACK dst %d\n", this->name, this->instance, msg_ack.dst);
             if (workq_write(&this->workq_out, &msg_ack)) {
                 printf("%d q is full\n", this->srcId);
             }
@@ -620,6 +622,7 @@ void *th_io_gen(void *p_arg){
 
 
         if(workq_read(&this->workq_in, &msg)){
+            printf("%s%d  read cmd %d src %d dst %d  len %d\n", this->name, this->instance, msg.cmd, msg.src, msg.dst, msg.length);
             // req from ib_read
             //req from em for ib_write
             if (msg.src == emDst[0] ||
@@ -637,11 +640,13 @@ void *th_io_gen(void *p_arg){
                     // assume 22
                     msg.dst =  ib_writeDst[2];
                 }
+                printf("%s%d send cmd %d  dst %d\n", this->name, this->instance, msg.cmd, msg.dst);
                 if (workq_write(&this->workq_out, &msg)) {
                     printf("%d q is full\n", this->srcId);
                 }
             }
             else {
+                printf("%s%d  cmd %d src %d dst %d for em\n", this->name, this->instance, msg.cmd, msg.src, msg.dst);
                 //req from IB_READ for EM_n (coded in length)
                 //leave the src as IB_READ (for ack)
                 //change the dst to EM_n
@@ -651,7 +656,7 @@ void *th_io_gen(void *p_arg){
                 else{
                     msg.dst = emDst[1];
                 }
-
+                 printf("  -> %d\n", msg.dst);
                 if (workq_write(&this->workq_out, &msg)) {
                     printf("%d q is full\n", this->srcId);
                 }
@@ -677,7 +682,7 @@ void *th_em(void *p_arg){
     cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
      msg_t                  msg;
      msg_t                  msg_ack;
-     long sent = 0;
+     unsigned int sent = 0;
      int IOGenCnt = 0;
      int IOGenNext = 0;
      int IOGenDst[ACTORS_MAX];
@@ -725,26 +730,6 @@ void *th_em(void *p_arg){
              break;
          }
      }
-     //build  io_genn list 
-     for (i=0; i < ACTORS_MAX; i++) {
-         IOGenDst[i] = dir_lookup(i, "io_gen");
-         if (IOGenDst[i] >= 0) {
-             IOGenCnt++;
-         }
-         else {
-             break;
-         }
-     }
-     //build  io_genn list 
-     for (i=0; i < ACTORS_MAX; i++) {
-         IOGenDst[i] = dir_lookup(i, "io_gen");
-         if (IOGenDst[i] >= 0) {
-             IOGenCnt++;
-         }
-         else {
-             break;
-         }
-     }
 
      //printf("%s%d init now\n", this->name, this->instance);
 
@@ -754,6 +739,7 @@ void *th_em(void *p_arg){
     if(workq_write(&g_workq_cli, &msg)){
         printf("%d q is full\n", this->srcId);
     }
+ 
 
     while (1){
 
@@ -762,6 +748,7 @@ void *th_em(void *p_arg){
             // req or req_last vi io_gen
             // acks from req's to IB_WRITE
             if (msg.cmd == CMD_REQ_ACK) {
+                printf("em recvd CMD_REQ_ACK from  %d\n ", msg.src);
                 if (destStatus[msg.src] > 0) {
                     destStatus[msg.src]  --;
                 }
@@ -778,6 +765,7 @@ void *th_em(void *p_arg){
                 msg_ack.dst = msg.src;
                 msg_ack.cmd = CMD_REQ_ACK;
                 if(workq_write(&this->workq_out, &msg_ack)){
+                    printf("err1\n");
                 }
                 // send it on to IB_WRITE
                 switch (sent & 0x0000007) {
@@ -827,11 +815,16 @@ void *th_em(void *p_arg){
                 default:
                     break;
                 }
+                if (IOGenNext >= IOGenCnt) {
+                    IOGenNext = 0;
+                }
                 msg.src = this->srcId;
-                //msg.cmd = CMD_REQ_ACK;
-                if(workq_write(&this->workq_out, &msg_ack)){
+                printf("%s%d send to ib_w cmd %d src %d dst %d len %d sent %d\n", this->name, this->instance, msg.cmd, msg.src, msg.dst, msg.length, sent);
+                if(workq_write(&this->workq_out, &msg)){
+                    printf("err\n");
                 }
                 else{
+                     destStatus[msg.dst] ++;
                     sent++;
                 }
             }
@@ -907,15 +900,15 @@ void *th_ag(void *p_arg){
         if(workq_read(p_workin_qs[i], &msg)){
             // use dst
             p_workq_out = p_workout_qs[msg.dst];
-            printf("ag src %d dst %d \n", msg.src, msg.dst);
+            printf("ag src %d dst %d cmd %d\n", msg.src, msg.dst, msg.cmd);
             if(workq_write(p_workq_out , &msg)){
                 printf("%d q is full\n", msg.dst);
             }
-            i++;
-            if (i >=  activeWorkQs ) {
-                 i = 0;
-            }
         }
+       i++;
+       if (i >=  activeWorkQs ) {
+            i = 0;
+       }
     }
 }
 
