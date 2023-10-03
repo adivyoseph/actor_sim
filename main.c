@@ -24,6 +24,12 @@
 
 #include "workq.h"
 
+extern int  menuInit();
+extern void menuLoop();
+extern int  menuAddItem(char *name, int (*cbFn)(int, char *argv[]) , char *help);
+
+int cbGetStats(int argc, char *argv[] );
+
 #define BILLION  1000000000L
 
 #define ACTORS_MAX  32
@@ -36,6 +42,11 @@ typedef struct actorThreadContext_s {
     char name[32];
     pthread_t   thread_id;
     int setaffinity;
+
+    //stats
+    unsigned int msg_read[ACTORS_MAX];
+    unsigned int msg_write[ACTORS_MAX];
+    unsigned int errors;
 
 } actorThreadContext_t;
 
@@ -61,7 +72,7 @@ typedef struct directory_s {
 directory_t directory;
 
 int dir_getCount(){
-    return directory.enrtyCnt;
+    return directory.srcIdCnt;
 }
 
 int dir_register(actorThreadContext_t *p_context){
@@ -176,13 +187,15 @@ int main(int argc, char **argv) {
     struct timespec start;
     struct timespec end;
     double accum;
-    int total_send = 30;
+    int total_send = 1000000;
     int first_count, sec_count;
 
     //init directory
     directory.enrtyCnt = 0;
     directory.srcIdCnt = 0;
 
+    menuInit();
+    menuAddItem("stats", cbGetStats, "get stats");
 
     getcpu(&cpu, &numa);
     printf("CLI %u %u\n", cpu, numa);
@@ -297,27 +310,110 @@ int main(int argc, char **argv) {
     while (1) {
         //wait for STOP
         if(workq_read(&g_workq_cli, &msg)){
+             //printf("%2d from %d \n", msg.cmd, msg.src);
             if(msg.cmd == CMD_CTL_STOP) {
                 i++;
-                printf("STOP from %d \n", msg.src);
                 if (i == 3) {
                     clock_gettime(CLOCK_REALTIME, &end);
                     break;
                 }
             }
         }
+       // menuLoop();
     }
 
 
     accum = ( end.tv_sec - start.tv_sec ) + (double)( end.tv_nsec - start.tv_nsec ) / (double)BILLION;
     printf( "%lf\n", accum );
 
+    while (1) {
+        menuLoop();
+    }
 
     return 0;
 }
 
 void usage(){
     printf("-h     help\n");
+}
+/**
+ * 
+ * 
+ * @author martin (10/3/23)
+ * 
+ * @param argc  ignored
+ * @param argv ignored
+ * 
+ * @return int  ignored
+ */
+typedef struct {
+    unsigned int msg_read[ACTORS_MAX];
+    unsigned int msg_write[ACTORS_MAX];
+    unsigned int errors;
+} statsIntance_t;
+
+statsIntance_t work_stats[ACTORS_MAX +1];
+
+int cbGetStats(int argc, char *argv[] )
+{
+    //actorThreadContext_t   *p_workContext;
+    int i;
+    int row;
+    int active = dir_getCount();
+    //g_contexts[ACTORS_MAX + 1];
+
+    //get stats
+    for (i =0; i < active; i++) {
+        memcpy((void *)&work_stats[i], (void *)&g_contexts[i].msg_read[0], sizeof(statsIntance_t));
+    }
+    memcpy((void *)&work_stats[ACTORS_MAX ], (void *)&g_contexts[ACTORS_MAX] .msg_read[0], sizeof(statsIntance_t));
+    //re format
+    printf("RX         ");
+    for (i = 0; i < active; i++) {
+        printf("  %7s", g_contexts[i].name);
+    }
+    printf("  %7s\n", g_contexts[ACTORS_MAX].name);
+
+    for (row = 0; row < active; row++) {
+        printf("%2d  %8s: ", row, g_contexts[row].name);
+        for (i = 0; i < active; i++) {
+            printf("  %7u",  work_stats[i].msg_read[row]);
+        }
+        printf("  %7u\n",  work_stats[ACTORS_MAX].msg_read[row]);
+    }
+    printf("Totals     ib_read  %u  ", 
+           work_stats[0].msg_read[14]  + work_stats[1].msg_read[14]  + work_stats[2].msg_read[14]  +
+           work_stats[0].msg_read[15]  + work_stats[1].msg_read[15]  + work_stats[2].msg_read[15] 
+            );
+
+    printf("   ib_write %u  ", 
+           work_stats[3].msg_read[14]  + work_stats[4].msg_read[14]  + work_stats[5].msg_read[14]  +
+           work_stats[3].msg_read[15]  + work_stats[4].msg_read[15]  + work_stats[5].msg_read[15]  
+            );
+
+    printf("    em %u  \n", 
+           work_stats[14].msg_read[0]  + work_stats[15].msg_read[0]    +
+           work_stats[14].msg_read[1]  + work_stats[15].msg_read[1]    +
+           work_stats[14].msg_read[2]  + work_stats[15].msg_read[2]    
+            );
+
+    printf("TX         \n");
+
+    for (row = 0; row < active; row++) {
+        printf("%2d  %8s: ", row, g_contexts[row].name);
+        for (i = 0; i < active; i++) {
+            printf("  %7u",  work_stats[i].msg_write[row]);
+        }
+        printf("  %7u\n",  work_stats[ACTORS_MAX].msg_write[row]);
+    }
+
+    printf("    %8s: ",    "errors");
+    for (i = 0; i < active; i++) {
+        printf("  %7u",  work_stats[i].errors);
+    }
+    printf("  %7u\n",  work_stats[ACTORS_MAX].errors);
+
+    return 0;
 }
 
 /**
@@ -331,7 +427,7 @@ void usage(){
  * 
  * @return void* 
  */
-#define EM_REQ_MAX 4
+#define EM_REQ_MAX 8
 void *th_ib_read(void *p_arg){
     actorThreadContext_t *this = (actorThreadContext_t*) p_arg;
     cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
@@ -345,6 +441,7 @@ void *th_ib_read(void *p_arg){
     int IOGenNext = 0;
     int IOGenDst[ACTORS_MAX];
     int emCnt = 0;
+    int indirectDst;
  //   int emNext = 0;
    int emDst[ACTORS_MAX];
 
@@ -412,10 +509,11 @@ void *th_ib_read(void *p_arg){
     while (1){
         //only recieves acks
         if(workq_read(&this->workq_in, &msg)){
+            this->msg_read[msg.src]++;
             if (msg.cmd == CMD_REQ_ACK) {
                 if (destStatus[msg.src] > 0) {
                     destStatus[msg.src]  --;
-                    printf("ACK from %d  credit %d\n", msg.src, destStatus[msg.src]);
+                   // printf("ACK from %d  credit %d\n", msg.src, destStatus[msg.src]);
                 }
             }
         }
@@ -428,23 +526,27 @@ void *th_ib_read(void *p_arg){
             case 0:
                 //use em_0 direct
                 msg.dst = emDst[0];
+                indirectDst = emDst[0];
                 msg.length = 10;
                 break;
             case 1:
                 //use em_1 direct
                 msg.dst = emDst[1];
+                indirectDst = emDst[1];
                 msg.length = 11;
                 break;
             case 2:
                 //use em_0 via io_gen
                 msg.length = 10;
                 msg.dst = IOGenDst[IOGenNext];
+                indirectDst = emDst[0];
                 IOGenNext++;
                 break;
             case 3:
                 //use em_1 via io_gen
                 msg.length = 11;
                 msg.dst = IOGenDst[IOGenNext];
+                indirectDst = emDst[1];
                 IOGenNext++;
                 break;
             default:
@@ -453,22 +555,28 @@ void *th_ib_read(void *p_arg){
             if (IOGenNext >=  IOGenCnt ) {
                 IOGenNext = 0;
             }
-            if (destStatus[msg.dst] < EM_REQ_MAX) {
+            if (destStatus[indirectDst] < EM_REQ_MAX) {
                 //send a work item
                 msg.src = this->srcId;
                 if (send_cnt == 1) {
                     msg.cmd = CMD_REQ_LAST;
+                    //printf("%s%d CMD_REQ_LAST\n ", this->name, this->instance);
                 }
                 if (workq_write(&this->workq_out, &msg) == 0) {
-                    printf("%s_%d sent %d cmd %d to %d len %d\n",
+                    this->msg_write[msg.dst]++;
+  /*                  printf("%s_%d sent %d cmd %d to %d len %d\n",
                            this->name,
                            this->instance,
                            send_cnt,
                            msg.cmd,
                            msg.dst,
                            msg.length);
-                    destStatus[msg.dst] ++;
+                           */
+                    destStatus[indirectDst] ++;
                     send_cnt--;
+                }
+                else {
+                    this->errors++;
                 }
             }
         }
@@ -530,22 +638,29 @@ void *th_ib_write(void *p_arg){
     while (1){
         //just recives requests
         if(workq_read(&this->workq_in, &msg)){
+            this->msg_read[msg.src]++;
             if (msg.cmd == CMD_REQ_LAST ) {
                 //tell controller
+                //printf("%s%d CMD_REQ_LAST\n", this->name, this->instance);
                 msg_ack.cmd = CMD_CTL_STOP  ;
                 msg_ack.src = this->srcId;
                 msg_ack.length = 0;
                 if(workq_write(&g_workq_cli, &msg_ack)){
-                    printf("%d q is full\n", this->srcId);
+                    //printf("%d q is full\n", this->srcId);
+                    this->errors++;
                 }
             }
             //send ack
             msg_ack.cmd = CMD_REQ_ACK ;
             msg_ack.dst = msg.src ;
             msg_ack.src = this->srcId;
-            printf("%s%d ACK dst %d\n", this->name, this->instance, msg_ack.dst);
+           // printf("%s%d ACK dst %d\n", this->name, this->instance, msg_ack.dst);
             if (workq_write(&this->workq_out, &msg_ack)) {
-                printf("%d q is full\n", this->srcId);
+                //printf("%d q is full\n", this->srcId);
+                this->errors++;
+            }
+            else{
+                this->msg_write[msg_ack.dst]++;
             }
         }
     }
@@ -622,7 +737,8 @@ void *th_io_gen(void *p_arg){
 
 
         if(workq_read(&this->workq_in, &msg)){
-            printf("%s%d  read cmd %d src %d dst %d  len %d\n", this->name, this->instance, msg.cmd, msg.src, msg.dst, msg.length);
+            this->msg_read[msg.src]++;
+           // printf("%s%d  read cmd %d src %d dst %d  len %d\n", this->name, this->instance, msg.cmd, msg.src, msg.dst, msg.length);
             // req from ib_read
             //req from em for ib_write
             if (msg.src == emDst[0] ||
@@ -640,13 +756,17 @@ void *th_io_gen(void *p_arg){
                     // assume 22
                     msg.dst =  ib_writeDst[2];
                 }
-                printf("%s%d send cmd %d  dst %d\n", this->name, this->instance, msg.cmd, msg.dst);
+                //printf("%s%d send cmd %d  dst %d\n", this->name, this->instance, msg.cmd, msg.dst);
                 if (workq_write(&this->workq_out, &msg)) {
-                    printf("%d q is full\n", this->srcId);
+                    //printf("%d q is full\n", this->srcId);
+                    this->errors++;
+                }
+                else{
+                    this->msg_write[msg.dst]++;
                 }
             }
             else {
-                printf("%s%d  cmd %d src %d dst %d for em\n", this->name, this->instance, msg.cmd, msg.src, msg.dst);
+                //printf("%s%d  cmd %d src %d dst %d for em\n", this->name, this->instance, msg.cmd, msg.src, msg.dst);
                 //req from IB_READ for EM_n (coded in length)
                 //leave the src as IB_READ (for ack)
                 //change the dst to EM_n
@@ -656,9 +776,13 @@ void *th_io_gen(void *p_arg){
                 else{
                     msg.dst = emDst[1];
                 }
-                 printf("  -> %d\n", msg.dst);
+                 //printf("  -> %d\n", msg.dst);
                 if (workq_write(&this->workq_out, &msg)) {
-                    printf("%d q is full\n", this->srcId);
+                    //printf("%d q is full\n", this->srcId);
+                    this->errors++;
+                }
+                else{
+                    this->msg_write[msg.dst]++;
                 }
             }
         }
@@ -744,11 +868,12 @@ void *th_em(void *p_arg){
     while (1){
 
         if(workq_read(&this->workq_in, &msg)){
+            this->msg_read[msg.src]++;
             // req or req_last from ib_read
             // req or req_last vi io_gen
             // acks from req's to IB_WRITE
             if (msg.cmd == CMD_REQ_ACK) {
-                printf("em recvd CMD_REQ_ACK from  %d\n ", msg.src);
+               // printf("em recvd CMD_REQ_ACK from  %d\n ", msg.src);
                 if (destStatus[msg.src] > 0) {
                     destStatus[msg.src]  --;
                 }
@@ -756,16 +881,21 @@ void *th_em(void *p_arg){
             else {
                 //assume req
                 //send ack
-                printf("%s_%d cmd %d from %d\n",
+ /*               printf("%s_%d cmd %d from %d\n",
                        this->name,
                        this->instance,
                        msg.cmd,
                        msg.src);
+                       */
                 msg_ack.src = this->srcId;
                 msg_ack.dst = msg.src;
                 msg_ack.cmd = CMD_REQ_ACK;
                 if(workq_write(&this->workq_out, &msg_ack)){
-                    printf("err1\n");
+                    //printf("err1\n");
+                    this->errors++;
+                }
+                else{
+                    this->msg_write[msg_ack.dst]++;
                 }
                 // send it on to IB_WRITE
                 switch (sent & 0x0000007) {
@@ -819,11 +949,13 @@ void *th_em(void *p_arg){
                     IOGenNext = 0;
                 }
                 msg.src = this->srcId;
-                printf("%s%d send to ib_w cmd %d src %d dst %d len %d sent %d\n", this->name, this->instance, msg.cmd, msg.src, msg.dst, msg.length, sent);
+                //printf("%s%d send to ib_w cmd %d src %d dst %d len %d sent %d\n", this->name, this->instance, msg.cmd, msg.src, msg.dst, msg.length, sent);
                 if(workq_write(&this->workq_out, &msg)){
-                    printf("err\n");
+                    //printf("err\n");
+                    this->errors++;
                 }
                 else{
+                    this->msg_write[msg.dst]++;
                      destStatus[msg.dst] ++;
                     sent++;
                 }
@@ -898,11 +1030,16 @@ void *th_ag(void *p_arg){
     i = 0;
     while (1){
         if(workq_read(p_workin_qs[i], &msg)){
+            this->msg_read[msg.src]++;
             // use dst
             p_workq_out = p_workout_qs[msg.dst];
-            printf("ag src %d dst %d cmd %d\n", msg.src, msg.dst, msg.cmd);
+            //printf("ag src %d dst %d cmd %d\n", msg.src, msg.dst, msg.cmd);
             if(workq_write(p_workq_out , &msg)){
-                printf("%d q is full\n", msg.dst);
+                //printf("%d q is full\n", msg.dst);
+                this->errors++;
+            }
+            else{
+                this->msg_write[msg.dst]++;
             }
         }
        i++;
