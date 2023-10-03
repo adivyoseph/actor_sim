@@ -11,7 +11,7 @@
 #define CACHELINE_SIZE 64
 #endif
 
-#define FIFO_DEPTH_MAX 0x80
+#define FIFO_DEPTH_MAX 0xff
 
 
 typedef struct msg_s {

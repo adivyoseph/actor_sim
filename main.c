@@ -76,6 +76,7 @@ int dir_register(actorThreadContext_t *p_context){
             p_context->instance = directory.entry[i].instanceCnt ;
             p_context->srcId = directory.srcIdCnt;
             p_context->state = 1;        //mark active
+            p_context->setaffinity = 2 + directory.srcIdCnt;
             directory.srcIdCnt++;
             directory.entry[i].instanceCnt ++;
             rtc = 0;
@@ -92,6 +93,7 @@ int dir_register(actorThreadContext_t *p_context){
         p_context->instance = 0;
         p_context->srcId = directory.srcIdCnt;
         p_context->state = 1;        //mark active
+        p_context->setaffinity = 2 + directory.srcIdCnt;
         directory.srcIdCnt++;
         directory.enrtyCnt++;
         rtc = 0;
@@ -174,7 +176,7 @@ int main(int argc, char **argv) {
     struct timespec start;
     struct timespec end;
     double accum;
-    int total_send = 100;
+    int total_send = 30;
     int first_count, sec_count;
 
     //init directory
@@ -276,7 +278,7 @@ int main(int argc, char **argv) {
      sec_count = (int)(total_send / 3);
       first_count = total_send - (sec_count* (2));
   clock_gettime(CLOCK_REALTIME, &start);
-  for (i = 0; i < 3; i++) {
+  for (i = 0; i < 1; i++) {
       msg.cmd = CMD_CTL_START;
       msg.src = -1;
       if (i == 0) {
@@ -331,7 +333,7 @@ void usage(){
 #define EM_REQ_MAX 4
 void *th_ib_read(void *p_arg){
     actorThreadContext_t *this = (actorThreadContext_t*) p_arg;
-    //cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
+    cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
      msg_t                  msg;
     unsigned  int send_cnt = 100;
 
@@ -345,15 +347,15 @@ void *th_ib_read(void *p_arg){
  //   int emNext = 0;
    int emDst[ACTORS_MAX];
 
-   printf("Thread_%d PID %d %d %s %d\n", this->srcId, getpid(), gettid(),  this->name, this->instance);
+   printf("Thread_%d PID %d %d %s %d %d\n", this->srcId, getpid(), gettid(),  this->name, this->instance, this->setaffinity);
 
-/*
+
     CPU_ZERO(&my_set); 
     if (this->setaffinity >= 0) {
         CPU_SET(this->setaffinity, &my_set);
         sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
     }
-*/
+
 
      while (1) {
          if(workq_read(&this->workq_in, &msg)){
@@ -487,7 +489,7 @@ void *th_ib_read(void *p_arg){
  */
 void *th_ib_write(void *p_arg){
     actorThreadContext_t *this = (actorThreadContext_t*) p_arg;
-    //cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
+    cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
      msg_t                  msg;
      msg_t                  msg_ack;
      //int send_cnt = 0;
@@ -495,13 +497,13 @@ void *th_ib_write(void *p_arg){
 
    printf("Thread_%d PID %d %d %s %d\n", this->srcId, getpid(), gettid(),  this->name, this->instance);
 
-/*
+
     CPU_ZERO(&my_set); 
     if (this->setaffinity >= 0) {
         CPU_SET(this->setaffinity, &my_set);
         sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
     }
-*/
+
 
      while (1) {
          if(workq_read(&this->workq_in, &msg)){
@@ -560,7 +562,7 @@ void *th_ib_write(void *p_arg){
  */
 void *th_io_gen(void *p_arg){
     actorThreadContext_t *this = (actorThreadContext_t*) p_arg;
-    //cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
+    cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
      msg_t                  msg;
      //int send_cnt = 0;
      //int emOutstandingRequests = 0;
@@ -570,13 +572,13 @@ void *th_io_gen(void *p_arg){
 
    printf("Thread_%d PID %d %d %s %d\n", this->srcId, getpid(), gettid(),  this->name, this->instance);
 
-/*
+
     CPU_ZERO(&my_set); 
     if (this->setaffinity >= 0) {
         CPU_SET(this->setaffinity, &my_set);
         sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
     }
-*/
+
 
      while (1) {
          if(workq_read(&this->workq_in, &msg)){
@@ -672,7 +674,7 @@ void *th_io_gen(void *p_arg){
  */
 void *th_em(void *p_arg){
     actorThreadContext_t *this = (actorThreadContext_t*) p_arg;
-    //cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
+    cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
      msg_t                  msg;
      msg_t                  msg_ack;
      long sent = 0;
@@ -687,13 +689,13 @@ void *th_em(void *p_arg){
 
    printf("Thread_%d PID %d %d %s %d\n", this->srcId, getpid(), gettid(),  this->name, this->instance);
 
-/*
+
     CPU_ZERO(&my_set); 
     if (this->setaffinity >= 0) {
         CPU_SET(this->setaffinity, &my_set);
         sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
     }
-*/
+
 
      while (1) {
          if(workq_read(&this->workq_in, &msg)){
@@ -851,7 +853,7 @@ void *th_em(void *p_arg){
  */
 void *th_ag(void *p_arg){
     actorThreadContext_t *this = (actorThreadContext_t*) p_arg;
-    //cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
+    cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
      msg_t                  msg;
      //int send_cnt = 0;
      //int emOutstandingRequests = 0;
@@ -863,13 +865,13 @@ void *th_ag(void *p_arg){
 
    printf("Thread_%d PID %d %d %s %d\n", this->srcId, getpid(), gettid(),  this->name, this->instance);
 
-/*
+
     CPU_ZERO(&my_set); 
     if (this->setaffinity >= 0) {
         CPU_SET(this->setaffinity, &my_set);
         sched_setaffinity(0, sizeof(cpu_set_t), &my_set);
     }
-*/
+
 
      while (1) {
          if(workq_read(&this->workq_in, &msg)){
@@ -903,9 +905,9 @@ void *th_ag(void *p_arg){
     i = 0;
     while (1){
         if(workq_read(p_workin_qs[i], &msg)){
-            printf("ag src %d dst %d\n", msg.src, msg.dst);
             // use dst
             p_workq_out = p_workout_qs[msg.dst];
+            printf("ag src %d dst %d \n", msg.src, msg.dst);
             if(workq_write(p_workq_out , &msg)){
                 printf("%d q is full\n", msg.dst);
             }

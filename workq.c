@@ -43,7 +43,7 @@ int workq_write(workq_t *p_q, msg_t *p_msg){
         //memcpy(&p_q->event[p_q->tail],p_msg, sizeof(msg_t));  //avoid library calls and simd usage
         p_q->event[p_q->tail].cmd     = p_msg->cmd;
         p_q->event[p_q->tail].src        = p_msg->src;
-        p_q->event[p_q->tail].src        = p_msg->dst;
+        p_q->event[p_q->tail].dst        = p_msg->dst;
         p_q->event[p_q->tail].length = p_msg->length;
 
         //printf("=>%s write event[%d]", p_q->name, p_q->tail);
@@ -66,7 +66,7 @@ int workq_read(workq_t *p_q, msg_t *p_msg){
         //memcpy(p_msg,&p_q->event[p_q->head], sizeof(msg_t));
         p_msg->cmd =      p_q->event[p_q->head].cmd     ; 
         p_msg->src =         p_q->event[p_q->head].src        ; 
-        p_msg->src =         p_q->event[p_q->head].dst       ; 
+        p_msg->dst =         p_q->event[p_q->head].dst       ; 
         p_msg->length = p_q->event[p_q->head].length ; 
         //printf("<=%s read event[%d]", p_q->name, p_q->head);
         (p_q->head)++;
