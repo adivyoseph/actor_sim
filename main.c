@@ -174,7 +174,7 @@ int main(int argc, char **argv) {
     struct timespec start;
     struct timespec end;
     double accum;
-    int total_send = 1000000;
+    int total_send = 100;
     int first_count, sec_count;
 
     //init directory
@@ -328,12 +328,12 @@ void usage(){
  * 
  * @return void* 
  */
-#define EM_REQ_MAX 8
+#define EM_REQ_MAX 4
 void *th_ib_read(void *p_arg){
     actorThreadContext_t *this = (actorThreadContext_t*) p_arg;
     //cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
      msg_t                  msg;
-     int send_cnt = 100;
+    unsigned  int send_cnt = 100;
 
     int destStatus[ACTORS_MAX];     //track credits
 
@@ -364,7 +364,7 @@ void *th_ib_read(void *p_arg){
      }
 
      //init code here
-     printf("%s%d init now\n", this->name, this->instance);
+     //printf("%s%d init now\n", this->name, this->instance);
      //build  destination list ems
      for (i=0; i < ACTORS_MAX; i++) {
          emDst[i] = dir_lookup(i, "em");
@@ -400,17 +400,19 @@ void *th_ib_read(void *p_arg){
         if(workq_read(&this->workq_in, &msg)){
            if(msg.cmd == CMD_CTL_START){
                send_cnt = msg.length;
+               printf("%s_%d START\n", this->name, this->instance);
                break;
            }
         }
     }
-
+    i = 0;
     while (1){
         //only recieves acks
         if(workq_read(&this->workq_in, &msg)){
             if (msg.cmd == CMD_REQ_ACK) {
                 if (destStatus[msg.src] > 0) {
                     destStatus[msg.src]  --;
+                    printf("ACK from %d  credit %d\n", msg.src, destStatus[msg.src]);
                 }
             }
         }
@@ -418,7 +420,8 @@ void *th_ib_read(void *p_arg){
         msg.cmd = CMD_REQ;
         msg.src = this->srcId;
         if (send_cnt > 0) {
-            switch (send_cnt & !0x03) {
+            //if(i++ < 20)  printf("select %u\n", send_cnt & 0x0000003 );
+            switch (send_cnt & 0x0000003) {
             case 0:
                 //use em_0 direct
                 msg.dst = emDst[0];
@@ -453,12 +456,16 @@ void *th_ib_read(void *p_arg){
                 if (send_cnt == 1) {
                     msg.cmd = CMD_REQ_LAST;
                 }
-                if (!workq_write(&this->workq_out, &msg)) {
+                if (workq_write(&this->workq_out, &msg) == 0) {
+                    printf("%s_%d sent %d cmd %d to %d len %d\n",
+                           this->name,
+                           this->instance,
+                           send_cnt,
+                           msg.cmd,
+                           msg.dst,
+                           msg.length);
                     destStatus[msg.dst] ++;
                     send_cnt--;
-                    if (send_cnt == 0) {
-
-                   }     
                 }
             }
         }
@@ -506,7 +513,7 @@ void *th_ib_write(void *p_arg){
 
      //init code here
 
-     printf("%s%d init now\n", this->name, this->instance);
+     //printf("%s%d init now\n", this->name, this->instance);
 
 
 
@@ -581,7 +588,7 @@ void *th_io_gen(void *p_arg){
 
      //init code here
 
-     printf("%s%d init now\n", this->name, this->instance);
+     //printf("%s%d init now\n", this->name, this->instance);
      for (i=0; i < ACTORS_MAX; i++) {
          ib_writeDst[i] = dir_lookup(i, "ib_write");
          if ( ib_writeDst[i] >= 0) {
@@ -737,7 +744,7 @@ void *th_em(void *p_arg){
          }
      }
 
-     printf("%s%d init now\n", this->name, this->instance);
+     //printf("%s%d init now\n", this->name, this->instance);
 
     msg.cmd = CMD_CTL_READY;
     msg.src = this->srcId;
@@ -760,13 +767,18 @@ void *th_em(void *p_arg){
             else {
                 //assume req
                 //send ack
+                printf("%s_%d cmd %d from %d\n",
+                       this->name,
+                       this->instance,
+                       msg.cmd,
+                       msg.src);
                 msg_ack.src = this->srcId;
                 msg_ack.dst = msg.src;
                 msg_ack.cmd = CMD_REQ_ACK;
                 if(workq_write(&this->workq_out, &msg_ack)){
                 }
                 // send it on to IB_WRITE
-                switch (sent & !0x07) {
+                switch (sent & 0x0000007) {
                 case  0:
                     //send to ib_write_0 direct
                     msg.length = 20;
@@ -878,7 +890,7 @@ void *th_ag(void *p_arg){
          }
      }
 
-     printf("%s%d init now\n", this->name, this->instance);
+    printf("%s%d init now activeqs %d\n", this->name, this->instance,  activeWorkQs);
 
     msg.cmd = CMD_CTL_READY;
     msg.src = ACTORS_MAX;
@@ -891,6 +903,7 @@ void *th_ag(void *p_arg){
     i = 0;
     while (1){
         if(workq_read(p_workin_qs[i], &msg)){
+            printf("ag src %d dst %d\n", msg.src, msg.dst);
             // use dst
             p_workq_out = p_workout_qs[msg.dst];
             if(workq_write(p_workq_out , &msg)){
