@@ -33,6 +33,8 @@ int cbGetStats(int argc, char *argv[] );
 #define BILLION  1000000000L
 
 #define ACTORS_MAX  32
+#define EM_REQ_MAX 8
+
 typedef struct actorThreadContext_s {
     workq_t workq_in;
     workq_t workq_out;
@@ -222,6 +224,8 @@ int main(int argc, char **argv) {
     for (i = 0; i < 3; i++, i_contextNext++) {
         sprintf(g_contexts[i_contextNext].name, "ib_read");
         dir_register(&g_contexts[i_contextNext]);
+        g_contexts[i_contextNext].setaffinity = 6 + i;
+        //g_contexts[i_contextNext].setaffinity = 6 + i;
         pthread_create(&g_contexts[i_contextNext].thread_id, NULL, th_ib_read, (void *) &g_contexts[i_contextNext]);
     }
 
@@ -229,6 +233,8 @@ int main(int argc, char **argv) {
     for (i = 0; i < 3; i++, i_contextNext++) {
         sprintf(g_contexts[i_contextNext].name, "ib_write");
         dir_register(&g_contexts[i_contextNext]);
+        g_contexts[i_contextNext].setaffinity = 18 + i;
+        //g_contexts[i_contextNext].setaffinity = 2 + i;
         pthread_create(&g_contexts[i_contextNext].thread_id, NULL, th_ib_write, (void *) &g_contexts[i_contextNext]);
     }
 
@@ -236,6 +242,24 @@ int main(int argc, char **argv) {
     for (i = 0; i < 8; i++, i_contextNext++) {
         sprintf(g_contexts[i_contextNext].name, "io_gen");
         dir_register(&g_contexts[i_contextNext]);
+ /*       if (i < 4) {
+            g_contexts[i_contextNext].setaffinity = 2 + i;
+        }
+        else {
+            g_contexts[i_contextNext].setaffinity = (14 - 4) + i;
+        }
+        */
+        switch(i){                                                                                     
+            case 0: g_contexts[i_contextNext].setaffinity =2; break;           // 14; break;                                 
+            case 1: g_contexts[i_contextNext].setaffinity =3; break;           // 15; break;                                 
+            case 2: g_contexts[i_contextNext].setaffinity =4; break;           // 16; break;                                 
+            case 3: g_contexts[i_contextNext].setaffinity =5; break;           // 18; break;                                 
+            case 4: g_contexts[i_contextNext].setaffinity =14; break;           // 19; break;                                 
+            case 5: g_contexts[i_contextNext].setaffinity =15; break;           // 20; break;                                 
+            case 6: g_contexts[i_contextNext].setaffinity =16; break;           // 21; break;                                 
+            case 7: g_contexts[i_contextNext].setaffinity =17; break;             // 9; break;                                
+            default: break;                                                                         
+        }
         pthread_create(&g_contexts[i_contextNext].thread_id, NULL, th_io_gen, (void *) &g_contexts[i_contextNext]);
     }
 
@@ -243,6 +267,12 @@ int main(int argc, char **argv) {
     for (i = 0; i < 2; i++, i_contextNext++) {
         sprintf(g_contexts[i_contextNext].name, "em");
         dir_register(&g_contexts[i_contextNext]);
+        //g_contexts[i_contextNext].setaffinity = 21 + i;
+        switch (i){
+        case 0: g_contexts[i_contextNext].setaffinity = 9; break;                  //5; break;       
+        case 1: g_contexts[i_contextNext].setaffinity = 10; break;               //10; break;    
+            default: break;
+        }
         pthread_create(&g_contexts[i_contextNext].thread_id, NULL, th_em, (void *) &g_contexts[i_contextNext]);
     }
 
@@ -252,7 +282,7 @@ int main(int argc, char **argv) {
     workq_init(&g_contexts[ACTORS_MAX].workq_in);
     g_contexts[ACTORS_MAX].instance = 0;
     g_contexts[ACTORS_MAX].srcId = ACTORS_MAX;
-    g_contexts[ACTORS_MAX].setaffinity = 23;
+    g_contexts[ACTORS_MAX].setaffinity = 11;
     pthread_create(&g_contexts[ACTORS_MAX].thread_id, NULL, th_ag, (void *) &g_contexts[ACTORS_MAX]);
 
     dir_print();
@@ -427,7 +457,7 @@ int cbGetStats(int argc, char *argv[] )
  * 
  * @return void* 
  */
-#define EM_REQ_MAX 8
+
 void *th_ib_read(void *p_arg){
     actorThreadContext_t *this = (actorThreadContext_t*) p_arg;
     cpu_set_t           my_set;        /* Define your cpu_set bit mask. */
