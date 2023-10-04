@@ -25,7 +25,7 @@
 #include "workq.h"
 
 extern int  menuInit();
-extern void menuLoop();
+extern int  menuLoop();
 extern int  menuAddItem(char *name, int (*cbFn)(int, char *argv[]) , char *help);
 
 int cbGetStats(int argc, char *argv[] );
@@ -177,14 +177,25 @@ workq_t g_workq_cli;
  * @return int 
  */
 int main(int argc, char **argv) {
-    //int opt;
+    int opt;
+    char work[64];
+    char cwork[64];
     int i_contextNext = 0;
     msg_t                  msg;
 
-    int i;
+    int i,j,k;
     unsigned cpu, numa;
     cpu_set_t my_set;        /* Define your cpu_set bit mask. */
     int cliAffinity = 1;
+    int agAffinity = 11;
+    #define EMTHREAD_MAX 2
+    int emAffinity[2] = {9,10};
+    #define IOGENTHREAD_MAX 8
+    int ioGenAffinity[8] = {2,3,4,5,14,15,16,17};
+    #define IBWTHREAD_MAX 3
+    int ibWriteAffinity[3] = {6,7,8};
+    #define IBRTHREAD_MAX 3
+    int ibReadAffinity[3] = {18,19,20};
 
     struct timespec start;
     struct timespec end;
@@ -195,6 +206,177 @@ int main(int argc, char **argv) {
     //init directory
     directory.enrtyCnt = 0;
     directory.srcIdCnt = 0;
+
+  
+    while((opt = getopt(argc, argv, "hc:a:e:i:r:w:")) != -1) 
+    { 
+        switch(opt) 
+        { 
+        case 'h':                   //help
+            usage();
+            return 0;
+            break;
+
+
+        case 'c':                    //cli cpu mapping
+                cliAffinity = atoi(optarg);
+                printf("cli cpu %d\n", cliAffinity); 
+                break; 
+
+        case 'a':                    //ag cpu mapping
+                agAffinity = atoi(optarg);
+                printf("ag cpu %d\n", agAffinity); 
+                break; 
+
+        case 'i':            //cpus for iogen threads
+                printf("io_gen cpus: %s\n", optarg); 
+                //coma seperated list 
+                strcpy(cwork, optarg);
+                i = 0;
+                j = 0;
+                k = 0;   //entry index
+                while (cwork[i] != 0) {
+                    if (cwork[i] == ' ') {
+                        i++;
+                        continue;
+                    }
+                    while ((cwork[i] >= '0') && (cwork[i] <= '9')) {
+                        work[j] = cwork[i];
+                        work[j+1] = '\0';
+                        i++;
+                        j++;
+                    }
+                    if(cwork[i] == '\0'){
+                        //printf("pin iogen %2d to %s\n", k, work);
+                        ioGenAffinity[k] = atoi(work);
+                    }
+                    if (cwork[i] == ',') {
+                        //printf("pin iogen %2d to %s\n", k, work);
+                        ioGenAffinity[k]  = atoi(work);
+                        k++;
+                        if (k >=  IOGENTHREAD_MAX) {
+                            break;
+                        }
+                        j = 0;
+                        i++;
+                    }
+                }
+                break; 
+
+
+        case 'e':            //cpus for emulator threads
+                printf("emulator cpus: %s\n", optarg); 
+                //coma seperated list 
+                strcpy(cwork, optarg);
+                i = 0;
+                j = 0;
+                k = 0;   //entry index
+                while (cwork[i] != 0) {
+                    if (cwork[i] == ' ') {
+                        i++;
+                        continue;
+                    }
+                    while ((cwork[i] >= '0') && (cwork[i] <= '9')) {
+                        work[j] = cwork[i];
+                        work[j+1] = '\0';
+                        i++;
+                        j++;
+                    }
+                    if(cwork[i] == '\0'){
+                        //printf("pin iogen %2d to %s\n", k, work);
+                        emAffinity[k] = atoi(work);
+                    }
+                    if (cwork[i] == ',') {
+                        //printf("pin iogen %2d to %s\n", k, work);
+                        emAffinity[k]  = atoi(work);
+                        k++;
+                        if (k >=  EMTHREAD_MAX) {
+                            break;
+                        }
+                        j = 0;
+                        i++;
+                    }
+                }
+                break; 
+
+        case 'r':            //cpus for ib_read threads
+                printf("ib_read cpus: %s\n", optarg); 
+                //coma seperated list 
+                strcpy(cwork, optarg);
+                i = 0;
+                j = 0;
+                k = 0;   //entry index
+                while (cwork[i] != 0) {
+                    if (cwork[i] == ' ') {
+                        i++;
+                        continue;
+                    }
+                    while ((cwork[i] >= '0') && (cwork[i] <= '9')) {
+                        work[j] = cwork[i];
+                        work[j+1] = '\0';
+                        i++;
+                        j++;
+                    }
+                    if(cwork[i] == '\0'){
+                        //printf("pin iogen %2d to %s\n", k, work);
+                        ibReadAffinity[k] = atoi(work);
+                    }
+                    if (cwork[i] == ',') {
+                        //printf("pin iogen %2d to %s\n", k, work);
+                        ibReadAffinity[k]  = atoi(work);
+                        k++;
+                        if (k >=  IBRTHREAD_MAX) {
+                            break;
+                        }
+                        j = 0;
+                        i++;
+                    }
+                }
+              break; 
+
+
+            case 'w':            //cpus for ib_write threads
+                printf("ib_write cpus: %s\n", optarg); 
+                //coma seperated list 
+                strcpy(cwork, optarg);
+                i = 0;
+                j = 0;
+                k = 0;   //entry index
+                while (cwork[i] != 0) {
+                    if (cwork[i] == ' ') {
+                        i++;
+                        continue;
+                    }
+                    while ((cwork[i] >= '0') && (cwork[i] <= '9')) {
+                        work[j] = cwork[i];
+                        work[j+1] = '\0';
+                        i++;
+                        j++;
+                    }
+                    if(cwork[i] == '\0'){
+                        //printf("pin iogen %2d to %s\n", k, work);
+                        ibWriteAffinity[k] = atoi(work);
+                    }
+                    if (cwork[i] == ',') {
+                        //printf("pin iogen %2d to %s\n", k, work);
+                        ibWriteAffinity[k]  = atoi(work);
+                        k++;
+                        if (k >=  IBWTHREAD_MAX) {
+                            break;
+                        }
+                        j = 0;
+                        i++;
+                    }
+                }
+              break; 
+  
+        default:
+            usage();
+            return 0;
+                break;
+
+        } 
+    } 
 
     menuInit();
     menuAddItem("stats", cbGetStats, "get stats");
@@ -224,8 +406,7 @@ int main(int argc, char **argv) {
     for (i = 0; i < 3; i++, i_contextNext++) {
         sprintf(g_contexts[i_contextNext].name, "ib_read");
         dir_register(&g_contexts[i_contextNext]);
-        g_contexts[i_contextNext].setaffinity = 6 + i;
-        //g_contexts[i_contextNext].setaffinity = 6 + i;
+        g_contexts[i_contextNext].setaffinity = ibReadAffinity[i];
         pthread_create(&g_contexts[i_contextNext].thread_id, NULL, th_ib_read, (void *) &g_contexts[i_contextNext]);
     }
 
@@ -233,8 +414,7 @@ int main(int argc, char **argv) {
     for (i = 0; i < 3; i++, i_contextNext++) {
         sprintf(g_contexts[i_contextNext].name, "ib_write");
         dir_register(&g_contexts[i_contextNext]);
-        g_contexts[i_contextNext].setaffinity = 18 + i;
-        //g_contexts[i_contextNext].setaffinity = 2 + i;
+        g_contexts[i_contextNext].setaffinity = ibWriteAffinity[i];
         pthread_create(&g_contexts[i_contextNext].thread_id, NULL, th_ib_write, (void *) &g_contexts[i_contextNext]);
     }
 
@@ -242,24 +422,7 @@ int main(int argc, char **argv) {
     for (i = 0; i < 8; i++, i_contextNext++) {
         sprintf(g_contexts[i_contextNext].name, "io_gen");
         dir_register(&g_contexts[i_contextNext]);
- /*       if (i < 4) {
-            g_contexts[i_contextNext].setaffinity = 2 + i;
-        }
-        else {
-            g_contexts[i_contextNext].setaffinity = (14 - 4) + i;
-        }
-        */
-        switch(i){                                                                                     
-            case 0: g_contexts[i_contextNext].setaffinity =2; break;           // 14; break;                                 
-            case 1: g_contexts[i_contextNext].setaffinity =3; break;           // 15; break;                                 
-            case 2: g_contexts[i_contextNext].setaffinity =4; break;           // 16; break;                                 
-            case 3: g_contexts[i_contextNext].setaffinity =5; break;           // 18; break;                                 
-            case 4: g_contexts[i_contextNext].setaffinity =14; break;           // 19; break;                                 
-            case 5: g_contexts[i_contextNext].setaffinity =15; break;           // 20; break;                                 
-            case 6: g_contexts[i_contextNext].setaffinity =16; break;           // 21; break;                                 
-            case 7: g_contexts[i_contextNext].setaffinity =17; break;             // 9; break;                                
-            default: break;                                                                         
-        }
+        g_contexts[i_contextNext].setaffinity = ioGenAffinity[i];
         pthread_create(&g_contexts[i_contextNext].thread_id, NULL, th_io_gen, (void *) &g_contexts[i_contextNext]);
     }
 
@@ -267,12 +430,7 @@ int main(int argc, char **argv) {
     for (i = 0; i < 2; i++, i_contextNext++) {
         sprintf(g_contexts[i_contextNext].name, "em");
         dir_register(&g_contexts[i_contextNext]);
-        //g_contexts[i_contextNext].setaffinity = 21 + i;
-        switch (i){
-        case 0: g_contexts[i_contextNext].setaffinity = 9; break;                  //5; break;       
-        case 1: g_contexts[i_contextNext].setaffinity = 10; break;               //10; break;    
-            default: break;
-        }
+        g_contexts[i_contextNext].setaffinity = emAffinity[i];
         pthread_create(&g_contexts[i_contextNext].thread_id, NULL, th_em, (void *) &g_contexts[i_contextNext]);
     }
 
@@ -282,7 +440,7 @@ int main(int argc, char **argv) {
     workq_init(&g_contexts[ACTORS_MAX].workq_in);
     g_contexts[ACTORS_MAX].instance = 0;
     g_contexts[ACTORS_MAX].srcId = ACTORS_MAX;
-    g_contexts[ACTORS_MAX].setaffinity = 11;
+    g_contexts[ACTORS_MAX].setaffinity = agAffinity;
     pthread_create(&g_contexts[ACTORS_MAX].thread_id, NULL, th_ag, (void *) &g_contexts[ACTORS_MAX]);
 
     dir_print();
@@ -357,7 +515,7 @@ int main(int argc, char **argv) {
     printf( "%lf\n", accum );
 
     while (1) {
-        menuLoop();
+        if(menuLoop() == 0)  break;
     }
 
     return 0;
@@ -365,6 +523,12 @@ int main(int argc, char **argv) {
 
 void usage(){
     printf("-h     help\n");
+    printf("-c        cli cpu\n");
+    printf("-a       message switch Core, recommend that it is co-loacated (same CCD) with emulators\n");
+    printf("-e       emulator Cores (2), comma seperated list ;   10,11  recommend cores but cpus may be used\n");
+    printf("-i        io_gen cpus (8), comma seperator list, they can be anywhere; 2,3,4,5,14,15,16,17\n");
+    printf("-r       ib_read cpus (3), comma seperator list, they can be anywhere; 6,7,8\n");
+    printf("-w     ib_write cpus (3), comma seperator list, they can be anywhere; 18,19,20\n");
 }
 /**
  * 

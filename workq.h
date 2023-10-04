@@ -13,6 +13,7 @@
 
 #define FIFO_DEPTH_MAX 0xff
 
+#define USE_LOCK 1   //use pthread_spinlock, its about three times faster than mutex
 
 typedef struct msg_s {
     int cmd;
@@ -23,8 +24,11 @@ typedef struct msg_s {
 
 
 typedef struct {
-    //pthread_mutex_t lock __attribute__ ((aligned(CACHELINE_SIZE)));
-    pthread_spinlock_t lock; //__attribute__ ((aligned(CACHELINE_SIZE)));
+#ifdef USE_LOCK
+   pthread_spinlock_t lock  __attribute__ ((aligned(CACHELINE_SIZE)));
+  #else
+  pthread_mutex_t lock __attribute__ ((aligned(CACHELINE_SIZE)));
+ #endif
     volatile int head ; //__attribute__ ((aligned(CACHELINE_SIZE)));
     volatile int tail; // __attribute__ ((aligned(CACHELINE_SIZE)));
     msg_t event[FIFO_DEPTH_MAX] __attribute__ ((aligned(CACHELINE_SIZE)));

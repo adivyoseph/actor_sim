@@ -14,8 +14,12 @@
 int workq_init(workq_t *p_q) {
     p_q->head = 0;
     p_q->tail = 0;
-    //pthread_mutex_init(&p_q->lock, NULL);
+    //
+#ifdef USE_LOCK
     pthread_spin_init(&p_q->lock, PTHREAD_PROCESS_SHARED);
+#else
+    pthread_mutex_init(&p_q->lock, NULL);
+#endif
     return 0; 
 }
 
@@ -31,8 +35,12 @@ inline int workq_available(workq_t *p_q)
 
 int workq_write(workq_t *p_q, msg_t *p_msg){
     int rc = 0;
-    //pthread_mutex_lock(&p_q->lock);
+    //
+#ifdef USE_LOCK
     pthread_spin_lock(&p_q->lock);
+#else
+    pthread_mutex_lock(&p_q->lock);
+#endif
     if (workq_available(p_q) == 0) // when queue is full
     {
         //printf("xQueue is full\n");
@@ -50,8 +58,12 @@ int workq_write(workq_t *p_q, msg_t *p_msg){
         (p_q->tail)++;
         (p_q->tail) %= FIFO_DEPTH_MAX;
     }
-    //pthread_mutex_unlock(&p_q->lock);
+    //
+#ifdef USE_LOCK
     pthread_spin_unlock(&p_q->lock);
+#else
+    pthread_mutex_unlock(&p_q->lock);
+#endif
     return rc;
 }   
 
@@ -59,8 +71,12 @@ int workq_write(workq_t *p_q, msg_t *p_msg){
 
 int workq_read(workq_t *p_q, msg_t *p_msg){
     int rtc = 0;
-    //pthread_mutex_lock(&p_q->lock);
+    //
+#ifdef USE_LOCK
     pthread_spin_lock(&p_q->lock);
+#else
+    pthread_mutex_lock(&p_q->lock);
+#endif
     if (p_q->head != p_q->tail){
 
         //memcpy(p_msg,&p_q->event[p_q->head], sizeof(msg_t));
@@ -73,8 +89,12 @@ int workq_read(workq_t *p_q, msg_t *p_msg){
         (p_q->head) %= FIFO_DEPTH_MAX;
         rtc = 1;
     }
-   //pthread_mutex_unlock(&p_q->lock);
+   //
+#ifdef USE_LOCK
    pthread_spin_unlock(&p_q->lock);
+#else
+   pthread_mutex_unlock(&p_q->lock);
+#endif
    return rtc;
 
 }

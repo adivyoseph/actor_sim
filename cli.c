@@ -25,7 +25,7 @@ int cbExit(int, char *argv[]);
 int cbHelp(int, char *argv[]);
 
 int menuInit(){
-    //menuAddItem("exit", cbExit, "exit program");
+    menuAddItem("exit", cbExit, "exit program");
     menuAddItem("help", cbHelp, "list help");
     return 0;
 }
@@ -40,12 +40,12 @@ int menuAddItem(char *name, int (*cbFn)(int, char *argv[]) , char *help){
     return 0;
 }
 
-void  menuLoop(){
+int  menuLoop(){
     int margc;
         //prompt
         ph_getLine(workLine);
         margc = ph_parseLine(workLine, margv);
-        ph_itemMatch(margv[0], margc, margv);
+        return ph_itemMatch(margv[0], margc, margv);
 }
 
 int ph_itemMatch(char *item, int argc, char *argv[] ){
